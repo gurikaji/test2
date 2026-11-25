@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>写真・動画 クリックビューア</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* 上部ステータスバー */
+    header {
+      height: 48px;
+      padding: 0 20px;
+      background-color: rgba(15, 23, 42, 0.9);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+      border-bottom: 1px solid #1e293b;
+      z-index: 10;
+    }
+
+    .file-info {
+      font-weight: bold;
+      color: #e2e8f0;
+    }
+
+    .counter {
+      background: #2563eb;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: bold;
+    }
+
+    /* メイン表示エリア（クリックで次へ） */
+    .viewer-container {
+      flex: 1;
+      position: relative;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      padding: 16px;
+    }
+
+    .viewer-container img,
+    .viewer-container video {
+      max-width: 100%;
+      max-height: calc(100vh - 110px);
+      border-radius: 8px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      object-fit: contain;
+    }
+
+    .empty-message {
+      text-align: center;
+      color: #94a3b8;
+      line-height: 1.8;
+    }
+
+    /* 下部コントロールバー */
+    footer {
+      height: 54px;
+      background-color: rgba(15, 23, 42, 0.95);
+      border-top: 1px solid #1e293b;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    button {
+      background-color: #334155;
+      color: white;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button:hover {
+      background-color: #475569;
+    }
+
+    button.primary {
+      background-color: #2563eb;
+    }
+
+    button.primary:hover {
+      background-color: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="file-info" id="fileName">読み込み中...</div>
+    <div class="counter" id="counter">0 / 0</div>
+  </header>
+
+  <!-- クリックで次へ進むメインエリア -->
+  <div class="viewer-container" id="viewer" title="クリックで次へ進みます">
+    <div class="empty-message" id="emptyMsg">
+      <code>media</code> フォルダに写真や動画を入れて再読み込みしてください。
+    </div>
+  </div>
+
+  <footer>
+    <button type="button" id="prevBtn">⬅️ 前へ</button>
+    <button type="button" class="primary" id="nextBtn">次へ（クリックでも進行） ➡️</button>
+    <button type="button" id="reloadBtn">🔄 リスト更新</button>
+  </footer>
+
+  <script>
+    let mediaList = [];
+    let currentIndex = 0;
+
+    const viewer = document.getElementById('viewer');
+    const fileNameEl = document.getElementById('fileName');
+    const counterEl = document.getElementById('counter');
+
+    // Python APIからファイル一覧を取得
+    async function loadMediaList() {
+      try {
+        const res = await fetch('/api/media');
+        mediaList = await res.json();
+        currentIndex = 0;
+        renderCurrentMedia();
+      } catch (err) {
+        fileNameEl.textContent = 'データ取得エラー';
+        console.error(err);
+      }
+    }
+
+    // 現在の写真または動画を表示
+    function renderCurrentMedia() {
+      if (mediaList.length === 0) {
+        fileNameEl.textContent = 'ファイルがありません';
+        counterEl.textContent = '0 / 0';
+        viewer.innerHTML = '<div class="empty-message"><code>media</code> フォルダに写真（jpg, png等）や動画（mp4等）を入れてください。</div>';
+        return;
+      }
+
+      const item = mediaList[currentIndex];
+      fileNameEl.textContent = `${item.type === 'video' ? '🎬' : '🖼️'} ${item.name}`;
+      counterEl.textContent = `${currentIndex + 1} / ${mediaList.length}`;
+      viewer.innerHTML = '';
+
+      if (item.type === 'image') {
+        const img = document.createElement('img');
+        img.src = item.url;
+        img.alt = item.name;
+        viewer.appendChild(img);
+      } else if (item.type === 'video') {
+        const video = document.createElement('video');
+        video.src = item.url;
+        video.controls = true;
+        video.autoplay = true;
+        video.playsInline = true;
+        // 動画の再生バー操作時に親要素の「次へ」クリックが発火しないようにする
+        video.addEventListener('click', (e) => {
+          e.stopPropagation();
+        });
+        viewer.appendChild(video);
+      }
+    }
+
+    function nextMedia() {
+      if (mediaList.length === 0) return;
+      currentIndex = (currentIndex + 1) % mediaList.length;
+      renderCurrentMedia();
+    }
+
+    function prevMedia() {
+      if (mediaList.length === 0) return;
+      currentIndex = (currentIndex - 1 + mediaList.length) % mediaList.length;
+      renderCurrentMedia();
+    }
+
+    // 画面クリックで次へ進む
+    viewer.addEventListener('click', nextMedia);
+
+    // ボタン操作
+    document.getElementById('nextBtn').addEventListener('click', nextMedia);
+    document.getElementById('prevBtn').addEventListener('click', prevMedia);
+    document.getElementById('reloadBtn').addEventListener('click', loadMediaList);
+
+    // キーボードの左右矢印キー・スペースキーでも操作可能にする
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        nextMedia();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prevMedia();
+      }
+    });
+
+    // 初回読み込み
+    loadMediaList();
+  </script>
+</body>
+</html>
